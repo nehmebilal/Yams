@@ -1,10 +1,12 @@
 ﻿using System.Diagnostics;
+using System.Net;
 using System.Threading.Tasks;
 using Etg.Yams.Application;
 using Etg.Yams.Azure.Utils;
 using Etg.Yams.Storage;
 using Etg.Yams.Storage.Config;
 using Etg.Yams.Utils;
+using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 
 namespace Etg.Yams.Azure.Storage
@@ -50,8 +52,16 @@ namespace Etg.Yams.Azure.Storage
                 return new DeploymentConfig();
             }
 
-            string data = await blob.DownloadTextAsync();
-            return new DeploymentConfig(data);
+            string leaseId = await LockDeploymentConfig(blob);
+            try
+            {
+                string data = await blob.DownloadTextAsync();
+                return new DeploymentConfig(data);
+            }
+            finally
+            {
+                await ReleaseLock(blob, leaseId);
+            }
         }
 
         public Task<bool> HasApplicationBinaries(AppIdentity appIdentity)
@@ -83,10 +93,48 @@ namespace Etg.Yams.Azure.Storage
             await BlobUtils.DownloadBlobDirectory(blobDirectory, localPath);
         }
 
-        public Task PublishDeploymentConfig(DeploymentConfig deploymentConfig)
+        public async Task PublishDeploymentConfig(DeploymentConfig deploymentConfig)
         {
             CloudBlockBlob blob = _blobContainer.GetBlockBlobReference(Constants.DeploymentConfigFileName);
-            return blob.UploadTextAsync(deploymentConfig.RawData());
+            string leaseId = await LockDeploymentConfig(blob);
+            try
+            {
+                await blob.UploadTextAsync(deploymentConfig.RawData());
+            }
+            finally
+            {
+                await ReleaseLock(blob, leaseId);
+            }
+        }
+
+        private static async Task ReleaseLock(CloudBlockBlob blob, string leaseId)
+        {
+            if (leaseId == null)
+            {
+                return;
+            }
+            await blob.ReleaseLeaseAsync(
+                new AccessCondition
+                {
+                    LeaseId = leaseId
+                });
+        }
+
+        private static async Task<string> LockDeploymentConfig(CloudBlockBlob blob)
+        {
+            // There is a slim chance of race condition if the DeploymentConfig.json doesn't exist.
+            // The problem is that we cannot lock the blob if it doesn't exist.
+            if (!await blob.ExistsAsync())
+            {
+                return null;
+            }
+            string leaseId = await blob.AcquireLeaseAsync(null, null);
+            if (leaseId == null)
+            {
+                throw new DeploymentConfigLockedException();
+            }
+
+            return leaseId;
         }
 
         public async Task UploadApplicationBinaries(AppIdentity appIdentity, string localPath,

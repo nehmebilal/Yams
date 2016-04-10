@@ -66,6 +66,7 @@
     <Compile Include="Deploy\IApplicationDeploymentDirectory.cs" />
     <Compile Include="Deploy\RemoteApplicationDeploymentDirectory.cs" />
     <Compile Include="IYamsService.cs" />
+    <Compile Include="Storage\DeploymentConfigLockedException.cs" />
     <Compile Include="YamsDiModule.cs" />
     <Compile Include="Download\ApplicationDownloader.cs" />
     <Compile Include="Download\IApplicationDownloader.cs" />
