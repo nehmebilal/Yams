@@ -35,7 +35,7 @@ namespace Etg.Yams.Process
                 process = new MonitorInitProcessDecorator(_config, process,
                     new IpcConnection(new NamedPipeServerAdapter(pipeName)));
             }
-            return new SelfRestartingProcess(process, _config.ApplicationRestartCount);
+            return process;
         }
     }
 }
