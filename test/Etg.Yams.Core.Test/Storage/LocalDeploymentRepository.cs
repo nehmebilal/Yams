@@ -1,8 +1,10 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Threading.Tasks;
 using Etg.Yams.Application;
 using Etg.Yams.Storage;
 using Etg.Yams.Storage.Config;
+using Etg.Yams.Storage.Status;
 using Etg.Yams.Utils;
 
 namespace Etg.Yams.Test.Storage
@@ -11,24 +13,29 @@ namespace Etg.Yams.Test.Storage
     {
         private readonly string _path;
         private readonly string _deploymentConfigPath;
-        private readonly IDeploymentConfigSerializer _serializer;
+        private readonly string _deploymentStatusPath;
+        private readonly IDeploymentConfigSerializer _deploymentConfigSerializer;
+        private readonly IDeploymentStatusSerializer _deploymentStatusSerializer;
 
-        public LocalDeploymentRepository(string path, IDeploymentConfigSerializer serializer)
+        public LocalDeploymentRepository(string path, IDeploymentConfigSerializer deploymentConfigSerializer, 
+            IDeploymentStatusSerializer deploymentStatusSerializer)
         {
             _path = path;
             _deploymentConfigPath = Path.Combine(_path, Constants.DeploymentConfigFileName);
-            _serializer = serializer;
+            _deploymentStatusPath= Path.Combine(_path, Constants.DeploymentStatusFileName);
+            _deploymentConfigSerializer = deploymentConfigSerializer;
+            _deploymentStatusSerializer = deploymentStatusSerializer;
         }
 
         public Task<DeploymentConfig> FetchDeploymentConfig()
         {
             string data = File.ReadAllText(_deploymentConfigPath);
-            return Task.FromResult(_serializer.Deserialize(data));
+            return Task.FromResult(_deploymentConfigSerializer.Deserialize(data));
         }
 
         public Task PublishDeploymentConfig(DeploymentConfig deploymentConfig)
         {
-            File.WriteAllText(_deploymentConfigPath, _serializer.Serialize(deploymentConfig));
+            File.WriteAllText(_deploymentConfigPath, _deploymentConfigSerializer.Serialize(deploymentConfig));
             return Task.CompletedTask;
         }
 
@@ -106,6 +113,25 @@ namespace Etg.Yams.Test.Storage
                 throw new BinariesNotFoundException($"The binaries were not found in the Yams repository");
             }
             await FileUtils.CopyDir(path, localPath, true);
+        }
+
+        public Task<DeploymentStatus> FetchDeploymentStatus()
+        {
+            string data = File.ReadAllText(_deploymentStatusPath);
+            return Task.FromResult(_deploymentStatusSerializer.Deserialize(data));
+        }
+
+        public Task PublishDeploymentStatus(DeploymentStatus deploymentStatus)
+        {
+            File.WriteAllText(_deploymentStatusPath, _deploymentStatusSerializer.Serialize(deploymentStatus));
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateDeploymentStatusAtomically(Action<DeploymentStatus> update)
+        {
+            DeploymentStatus deploymentStatus = new DeploymentStatus();
+            update(deploymentStatus);
+            return PublishDeploymentStatus(deploymentStatus);
         }
     }
 }

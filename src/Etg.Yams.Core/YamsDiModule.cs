@@ -66,7 +66,10 @@ namespace Etg.Yams
 
             builder.RegisterInstance(updateSessionManager);
 
-            builder.RegisterInstance(deploymentRepository);
+            builder.RegisterInstance(deploymentRepository)
+                .As<IDeploymentRepository>()
+                .As<IDeploymentStatusManager>()
+                .As<IDeploymentMonitor>();
 
             builder.RegisterType<YamsService>().As<IYamsService>().SingleInstance();
 
@@ -74,6 +77,7 @@ namespace Etg.Yams
 
             builder.RegisterType<DiagnosticsTraceWriter>().As<ITraceWriter>().SingleInstance();
             builder.RegisterType<JsonSerializer>().As<IJsonSerializer>().SingleInstance();
+
 
             return builder;
         }
@@ -105,9 +109,10 @@ namespace Etg.Yams
                 c =>
                 {
                     var config = c.Resolve<YamsConfig>();
-                    return new ApplicationUpdateManager(config.ClusterId,
+                    return new ApplicationUpdateManager(config.ClusterId, config.InstanceId,
                         c.Resolve<IApplicationDeploymentDirectory>(), c.Resolve<IApplicationPool>(),
-                        c.Resolve<IApplicationDownloader>(), c.Resolve<IApplicationInstaller>());
+                        c.Resolve<IApplicationDownloader>(), c.Resolve<IApplicationInstaller>(),
+                        c.Resolve<IDeploymentStatusManager>());
                 }).SingleInstance();
         }
 

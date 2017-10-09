@@ -8,30 +8,39 @@ using Etg.Yams.Utils;
 using Microsoft.WindowsAzure.Storage.Blob;
 using Etg.Yams.Json;
 using Newtonsoft.Json.Serialization;
+using Etg.Yams.Storage.Status;
+using System;
+using Etg.Yams.Azure.Lease;
 
 namespace Etg.Yams.Azure.Storage
 {
-    public class BlobStorageDeploymentRepository : IDeploymentRepository
+    public class BlobStorageDeploymentRepository : IDeploymentRepository, IDeploymentMonitor, IDeploymentStatusManager
     {
         public const string ApplicationsRootFolderName = "applications";
         private readonly CloudBlobContainer _blobContainer;
-        private readonly IDeploymentConfigSerializer _serializer;
+        private readonly IDeploymentConfigSerializer _deploymentConfigSerializer;
+        private readonly IDeploymentStatusSerializer _deploymentStatusSerializer;
 
-        public BlobStorageDeploymentRepository(CloudBlobContainer blobContainer, IDeploymentConfigSerializer serializer)
+        public BlobStorageDeploymentRepository(CloudBlobContainer blobContainer, IDeploymentConfigSerializer serializer,
+            IDeploymentStatusSerializer deploymentStatusSerializer)
         {
             _blobContainer = blobContainer;
-            _serializer = serializer;
+            _deploymentConfigSerializer = serializer;
+            _deploymentStatusSerializer = deploymentStatusSerializer;
         }
 
-        public BlobStorageDeploymentRepository(string connectionString, IDeploymentConfigSerializer serializer) 
-            : this(GetApplicationsContainerReference(connectionString), serializer)
+        public BlobStorageDeploymentRepository(string connectionString, IDeploymentConfigSerializer deploymentConfigSerializer,
+            IDeploymentStatusSerializer deploymentStatusSerializer) 
+            : this(GetApplicationsContainerReference(connectionString), deploymentConfigSerializer, deploymentStatusSerializer)
         {
         }
 
         public static BlobStorageDeploymentRepository Create(string connectionString)
         {
-            IDeploymentConfigSerializer serializer = new JsonDeploymentConfigSerializer(new JsonSerializer(new DiagnosticsTraceWriter()));
-            return new BlobStorageDeploymentRepository(connectionString, serializer);
+            var jsonSerializer = new JsonSerializer(new DiagnosticsTraceWriter());
+            IDeploymentConfigSerializer deploymentConfigSerializer = new JsonDeploymentConfigSerializer(jsonSerializer);
+            IDeploymentStatusSerializer deploymentStatusSerializer = new JsonDeploymentStatusSerializer(jsonSerializer);
+            return new BlobStorageDeploymentRepository(connectionString, deploymentConfigSerializer, deploymentStatusSerializer);
         }
 
         private static CloudBlobContainer GetApplicationsContainerReference(string connectionString)
@@ -62,7 +71,7 @@ namespace Etg.Yams.Azure.Storage
             }
 
             string data = await blob.DownloadTextAsync();
-            return _serializer.Deserialize(data);
+            return _deploymentConfigSerializer.Deserialize(data);
         }
 
         public Task<bool> HasApplicationBinaries(AppIdentity appIdentity)
@@ -97,7 +106,7 @@ namespace Etg.Yams.Azure.Storage
         public Task PublishDeploymentConfig(DeploymentConfig deploymentConfig)
         {
             CloudBlockBlob blob = _blobContainer.GetBlockBlobReference(Constants.DeploymentConfigFileName);
-            return blob.UploadTextAsync(_serializer.Serialize(deploymentConfig));
+            return blob.UploadTextAsync(_deploymentConfigSerializer.Serialize(deploymentConfig));
         }
 
         public async Task UploadApplicationBinaries(AppIdentity appIdentity, string localPath,
@@ -145,6 +154,54 @@ namespace Etg.Yams.Azure.Storage
         private string GetBlobDirectoryRelPath(AppIdentity appIdentity)
         {
             return appIdentity.Id + "/" + appIdentity.Version;
+        }
+
+        public async Task<DeploymentStatus> FetchDeploymentStatus()
+        {
+            var blob = _blobContainer.GetBlockBlobReference(Constants.DeploymentStatusFileName);
+            if (!await blob.ExistsAsync())
+            {
+                Trace.TraceInformation("The DeploymentConfig.json file was not found in the Yams repository");
+                return new DeploymentStatus();
+            }
+
+            string data = await blob.DownloadTextAsync();
+            return _deploymentStatusSerializer.Deserialize(data);
+        }
+
+        public Task PublishDeploymentStatus(DeploymentStatus deploymentStatus)
+        {
+            CloudBlockBlob blob = _blobContainer.GetBlockBlobReference(Constants.DeploymentStatusFileName);
+            return blob.UploadTextAsync(_deploymentStatusSerializer.Serialize(deploymentStatus));
+        }
+
+        public async Task UpdateDeploymentStatusAtomically(Action<DeploymentStatus> updateAction)
+        {
+            CloudBlockBlob blob = _blobContainer.GetBlockBlobReference(Constants.DeploymentStatusFileName);
+            await BlobUtils.CreateBlobIfNotExists(blob);
+            BlobLeaseFactory blobLeaseFactory = new BlobLeaseFactory();
+            IBlobLease lease = blobLeaseFactory.CreateLease(blob);
+            var leaseId = await lease.TryAcquireLease();
+            if(leaseId == null)
+            {
+                Trace.TraceInformation("Could not acquire the lease to update the DeploymentStatus. Will try again next time");
+                return;
+            }
+
+            try
+            {
+                DeploymentStatus deploymentStatus = await FetchDeploymentStatus();
+                updateAction.Invoke(deploymentStatus);
+                await PublishDeploymentStatus(deploymentStatus);
+            }
+            catch(Exception e)
+            {
+                Trace.TraceError($"Failed to update the DeploymentStatus, Exception {e}");
+            }
+            finally
+            {
+                await lease.ReleaseLease();
+            }
         }
     }
 }

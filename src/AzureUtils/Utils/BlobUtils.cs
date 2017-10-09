@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Etg.Yams.Utils;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
+using System.Net;
 
 namespace Etg.Yams.Azure.Utils
 {
@@ -73,6 +74,22 @@ namespace Etg.Yams.Azure.Utils
         public static string GetBlobRelativePath(ICloudBlob blob, CloudBlobContainer container)
         {
             return GetBlobRelativePathInternal(blob, container);
+        }
+
+        public static async Task CreateBlobIfNotExists(ICloudBlob blob)
+        {
+            var emptyByteArray = new byte[] { };
+            try
+            {
+                await blob.UploadFromByteArrayAsync(emptyByteArray, 0, emptyByteArray.Length,
+                    AccessCondition.GenerateIfNotExistsCondition(), new BlobRequestOptions(), new OperationContext());
+            } catch(StorageException e)
+            {
+                if(e.RequestInformation.HttpStatusCode != 409)
+                {
+                    throw;
+                }
+            }
         }
 
         public static async Task CreateEmptyBlob(ICloudBlob blob)

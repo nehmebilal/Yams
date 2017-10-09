@@ -1,5 +1,6 @@
 ﻿using System;
 using Semver;
+using Newtonsoft.Json;
 
 namespace Etg.Yams.Application
 {
@@ -19,6 +20,7 @@ namespace Etg.Yams.Application
             _version = version;
         }
 
+        [JsonConstructor]
 		public AppIdentity(string id, string version)
 		{
 			_id = id;

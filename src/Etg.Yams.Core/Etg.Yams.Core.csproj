@@ -104,6 +104,8 @@
     <Compile Include="Install\AppInstallConfig.cs" />
     <Compile Include="Storage\Config\IDeploymentConfigSerializer.cs" />
     <Compile Include="Storage\Config\JsonDeploymentConfigSerializer.cs" />
+    <Compile Include="Storage\Status\AppDeploymentStatus.cs" />
+    <Compile Include="Storage\Status\JsonDeploymentStatusSerializer.cs" />
     <Compile Include="Utils\TaskExtensions.cs" />
     <Compile Include="YamsDiModule.cs" />
     <Compile Include="Download\ApplicationDownloader.cs" />
